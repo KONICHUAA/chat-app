@@ -1,101 +1,103 @@
-import requests
-from flask import Flask, jsonify,request
-import json
-import random
-import string
+const express = require('express');
+const bodyParser = require('body-parser');
+const fs = require('fs');
+const randomstring = require('randomstring');
 
-app = Flask(__name__)
-def generate_random_code():
-    return ''.join(random.choices(string.digits, k=4))
-# Load data from the JSON file
-with open('data.json', 'r') as file:
-    data = json.load(file)
+const app = express();
+const PORT = 3000; // Set your desired port number
 
-@app.route('/rooms')
-def get_json_data():
-    return jsonify(data)
+app.use(bodyParser.json());
 
-@app.route('/add', methods=['POST'])
-def add_room():
-    # Parse JSON data from the request body
-    request_data = request.get_json()
+// Load data from the JSON file
+const dataPath = 'data.json';
+let data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
 
-    # Extract room name from the request data
-    room_name = request_data.get('roomName')
+app.get('/rooms', (req, res) => {
+    res.json(data);
+});
 
-    if not room_name:
-        return jsonify({"error": "Room name is required"}), 400
+app.post('/add', (req, res) => {
+    const roomName = req.body.roomName;
 
-    # Generate a random 4-digit code
-    room_key = generate_random_code()
-
-    # Create a new room with an empty list of messages
-    new_room = {
-        "Name": room_name,
-        "messages": []
+    if (!roomName) {
+        return res.status(400).json({ error: 'Room name is required' });
     }
 
-    # Add the new room to the existing data using the generated room key
-    data["rooms"][room_key] = new_room
+    const roomKey = randomstring.generate({ length: 4, charset: 'numeric' });
 
-    # Write the updated data back to the JSON file (assuming 'data.json')
-    with open('data.json', 'w') as json_file:
-        json.dump(data, json_file, indent=2)
+    const newRoom = {
+        Name: roomName,
+        messages: [],
+    };
 
-    print(f"Done making Room {room_name} by Key {room_key}")
+    data.rooms[roomKey] = newRoom;
 
-    return jsonify({"message": f"Key = {room_key}", "data": new_room}), 200
+    fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
 
+    console.log(`Done making Room ${roomName} by Key ${roomKey}`);
 
-@app.route('/delete/<room_key>', methods=['DELETE'])
-def delete_room(room_key):
-    try:
-        # Attempt to delete the room with the specified key
-        deleted_room = data["rooms"].pop(room_key)
+    return res.json({ message: `Key = ${roomKey}`, data: newRoom });
+});
 
-        # Write the updated data back to the JSON file
-        with open('data.json', 'w') as json_file:
-            json.dump(data, json_file, indent=2)
+app.delete('/delete/:room_key', (req, res) => {
+    const roomKey = req.params.room_key;
 
-        return jsonify({"message": f"Room with key {room_key} deleted successfully", "data": deleted_room}), 200
-    except KeyError:
-        return jsonify({"error": f"Room with key {room_key} not found"}), 404
-@app.route('/get_messages/<room_key>', methods=['GET'])
-def get_messages(room_key):
-    try:
-        # Retrieve messages for the specified room key
-        room_messages = data["rooms"][room_key]["messages"]
-        return room_messages
-    except KeyError:
-        return jsonify({"error": f"Room not found"}), 404
-@app.route('/add_message/<room_key>', methods=['POST'])
-def add_message(room_key):
-    try:
-        if not data["rooms"][room_key]:
-            print("Key is wrong")
-        print(f"Received POST request for room key: {room_key}")
+    try {
+        const deletedRoom = data.rooms[roomKey];
+        delete data.rooms[roomKey];
 
-        # Parse JSON data from the request body
-        request_data = request.get_json()
+        fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
 
-        # Extract message content from the request data
-        message_content = request_data.get('messageContent')
+        return res.json({
+            message: `Room with key ${roomKey} deleted successfully`,
+            data: deletedRoom,
+        });
+    } catch (error) {
+        return res.status(404).json({ error: `Room with key ${roomKey} not found` });
+    }
+});
 
-        if not message_content:
-            return jsonify({"error": "Message content is required"}), 400
+app.get('/get_messages/:room_key', (req, res) => {
+    const roomKey = req.params.room_key;
 
-        # Add the new message to the specified room key
-        data["rooms"][room_key]["messages"].append(message_content)
+    try {
+        const roomMessages = data.rooms[roomKey].messages;
+        res.json(roomMessages);
+    } catch (error) {
+        res.status(404).json({ error: 'Room not found' });
+    }
+});
 
-        # Write the updated data back to the JSON file
-        with open('data.json', 'w') as json_file:
-            json.dump(data, json_file, indent=2)
+app.post('/add_message/:room_key', (req, res) => {
+    const roomKey = req.params.room_key;
 
-        return jsonify({"message": "Message added successfully", "data": {"roomKey": room_key, "messageContent": message_content}}), 200
-    except KeyError:
-        print(f"Room with key {room_key} not found")
-        return jsonify({"error": f"Room with key {room_key} not found"}), 404
+    try {
+        if (!data.rooms[roomKey]) {
+            console.log('Key is wrong');
+        }
 
+        console.log(`Received POST request for room key: ${roomKey}`);
 
-if __name__ == '__main__':
-    app.run(debug=True)
+        const messageContent = req.body.messageContent;
+
+        if (!messageContent) {
+            return res.status(400).json({ error: 'Message content is required' });
+        }
+
+        data.rooms[roomKey].messages.push(messageContent);
+
+        fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
+
+        return res.json({
+            message: 'Message added successfully',
+            data: { roomKey: roomKey, messageContent: messageContent },
+        });
+    } catch (error) {
+        console.log(`Room with key ${roomKey} not found`);
+        return res.status(404).json({ error: `Room with key ${roomKey} not found` });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
